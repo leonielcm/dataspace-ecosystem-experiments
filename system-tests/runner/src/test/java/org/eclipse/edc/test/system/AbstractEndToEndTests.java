@@ -1,6 +1,7 @@
 package org.eclipse.edc.test.system;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.restassured.http.ContentType;
 import jakarta.json.JsonArray;
 import jakarta.json.JsonObject;
 import jakarta.json.JsonValue;
@@ -12,6 +13,7 @@ import org.eclipse.edc.spi.monitor.Monitor;
 
 import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -128,6 +130,65 @@ public class AbstractEndToEndTests {
         });
 
         return transferProcessId;
+    }
+
+    protected static String getContractIdFromTransferProcess(AbstractParticipant consumer, String transferProcessId) {
+        return consumer.participantClient().baseManagementRequest().get("/v3/transferprocesses/" + transferProcessId).then().statusCode(200).extract().body().jsonPath().getString("contractId");
+    }
+
+    /**
+     * Resolves the provider's own transfer process id for a negotiation the consumer
+     * initiated, via the correlationId link (provider.transferProcess.correlationId ==
+     * consumer's transferProcessId) -- each side persists its own locally-generated contract
+     * agreement id, so the consumer's contractId can't be reused for provider-side operations.
+     */
+    protected static String getProviderTransferProcessId(AbstractParticipant provider, String consumerTransferProcessId) {
+        var filter = Map.of(
+                "@context", Map.of("@vocab", "https://w3id.org/edc/v0.0.1/ns/"),
+                "filterExpression", List.of(Map.of(
+                        "operandLeft", "correlationId",
+                        "operator", "=",
+                        "operandRight", consumerTransferProcessId
+                )));
+        return provider.participantClient().baseManagementRequest()
+                .contentType(ContentType.JSON)
+                .body(filter)
+                .when()
+                .post("/v3/transferprocesses/request")
+                .then()
+                .log().ifError()
+                .statusCode(200)
+                .extract().body().jsonPath().getString("[0].'@id'");
+    }
+
+    protected static void retireAgreement(AbstractParticipant participant, String contractId, String reason) {
+        var body = Map.of(
+                "@context", Map.of(
+                        "eonax", "https://w3id.org/eonax/v0.0.1/ns/",
+                        "edc", "https://w3id.org/edc/v0.0.1/ns/"
+                ),
+                "edc:agreementId", contractId,
+                "eonax:reason", reason
+        );
+
+        participant.participantClient().baseManagementRequest()
+                .contentType(ContentType.JSON)
+                .body(body)
+                .when()
+                .post("/v3/contractagreements/retirements")
+                .then()
+                .log().ifError()
+                .statusCode(204);
+    }
+
+    protected static void reactivateAgreement(AbstractParticipant participant, String contractId) {
+        participant.participantClient().baseManagementRequest()
+                .contentType(ContentType.JSON)
+                .when()
+                .delete("/v3/contractagreements/retirements/" + contractId)
+                .then()
+                .log().ifError()
+                .statusCode(204);
     }
 
     /**

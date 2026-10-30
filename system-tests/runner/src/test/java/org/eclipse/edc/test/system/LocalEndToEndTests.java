@@ -779,35 +779,6 @@ public class LocalEndToEndTests extends AbstractEndToEndTests {
             });
         }
 
-        public static String getContractIdFromTransferProcess(AbstractParticipant consumer, String transferProcessId) {
-            return consumer.participantClient().baseManagementRequest().get("/v3/transferprocesses/" + transferProcessId).then().statusCode(200).extract().body().jsonPath().getString("contractId");
-        }
-
-        /**
-         * Resolves the provider's own transfer process id for a negotiation the consumer
-         * initiated, via the correlationId link (provider.transferProcess.correlationId ==
-         * consumer's transferProcessId) -- see getContractIdFromTransferProcess's javadoc above
-         * for why this is needed instead of just reusing the consumer's own contractId.
-         */
-        public static String getProviderTransferProcessId(AbstractParticipant provider, String consumerTransferProcessId) {
-            var filter = Map.of(
-                    "@context", Map.of("@vocab", "https://w3id.org/edc/v0.0.1/ns/"),
-                    "filterExpression", List.of(Map.of(
-                            "operandLeft", "correlationId",
-                            "operator", "=",
-                            "operandRight", consumerTransferProcessId
-                    )));
-            return provider.participantClient().baseManagementRequest()
-                    .contentType(ContentType.JSON)
-                    .body(filter)
-                    .when()
-                    .post("/v3/transferprocesses/request")
-                    .then()
-                    .log().ifError()
-                    .statusCode(200)
-                    .extract().body().jsonPath().getString("[0].'@id'");
-        }
-
         public static class TransferTestProvider implements ArgumentsProvider {
             @Override
             public Stream<? extends Arguments> provideArguments(ExtensionContext extensionContext) {
@@ -874,36 +845,6 @@ public class LocalEndToEndTests extends AbstractEndToEndTests {
                     .then()
                     .log().ifError()
                     .statusCode(200);
-        }
-
-        private void retireAgreement(AbstractParticipant participant, String contractId, String reason) {
-            var body = Map.of(
-                    "@context", Map.of(
-                            "eonax", "https://w3id.org/eonax/v0.0.1/ns/",
-                            "edc", "https://w3id.org/edc/v0.0.1/ns/"
-                    ),
-                    "edc:agreementId", contractId,
-                    "eonax:reason", reason
-            );
-
-            participant.participantClient().baseManagementRequest()
-                    .contentType(ContentType.JSON)
-                    .body(body)
-                    .when()
-                    .post("/v3/contractagreements/retirements")
-                    .then()
-                    .log().ifError()
-                    .statusCode(204);
-        }
-
-        private void reactivateAgreement(AbstractParticipant participant, String contractId) {
-            participant.participantClient().baseManagementRequest()
-                    .contentType(ContentType.JSON)
-                    .when()
-                    .delete("/v3/contractagreements/retirements/" + contractId)
-                    .then()
-                    .log().ifError()
-                    .statusCode(204);
         }
     }
 
