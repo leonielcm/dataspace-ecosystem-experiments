@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import static io.restassured.RestAssured.given;
@@ -23,6 +24,9 @@ import static org.eclipse.edc.jsonld.spi.JsonLdKeywords.CONTEXT;
 import static org.eclipse.edc.jsonld.spi.JsonLdKeywords.ID;
 import static org.eclipse.edc.jsonld.spi.JsonLdKeywords.TYPE;
 import static org.eclipse.edc.jsonld.spi.JsonLdKeywords.VOCAB;
+import static org.eclipse.edc.jsonld.spi.PropertyAndTypeNames.ODRL_ASSIGNER_ATTRIBUTE;
+import static org.eclipse.edc.jsonld.spi.PropertyAndTypeNames.ODRL_POLICY_ATTRIBUTE;
+import static org.eclipse.edc.jsonld.spi.PropertyAndTypeNames.ODRL_TARGET_ATTRIBUTE;
 import static org.eclipse.edc.spi.constants.CoreConstants.EDC_NAMESPACE;
 import static org.eclipse.edc.spi.core.CoreConstants.DSE_POLICY_NS;
 import static org.eclipse.edc.spi.core.CoreConstants.DSE_POLICY_PREFIX;
@@ -30,6 +34,8 @@ import static org.eclipse.edc.test.system.ParticipantConstants.CLUSTER_HOSTNAME;
 import static org.eclipse.edc.test.system.TestConstants.DEFAULT_TIMEOUT;
 
 abstract class AbstractParticipant extends AbstractEntity {
+
+    static final String API_KEY_HEADER = "x-api-key";
 
     @Override
     protected String identityHubIdentityUrl() {
@@ -167,9 +173,68 @@ abstract class AbstractParticipant extends AbstractEntity {
     public static class ParticipantClient extends Participant {
 
         protected LazySupplier<URI> dataPlaneData;
+        protected String apiKey;
 
         public RequestSpecification baseDataRequest() {
-            return given().baseUri(this.dataPlaneData.get().toString());
+            var request = given().baseUri(this.dataPlaneData.get().toString());
+            return apiKey == null ? request : request.header(API_KEY_HEADER, apiKey);
+        }
+
+        public URI dataPlaneDataUri() {
+            return dataPlaneData.get();
+        }
+
+        /**
+         * Headers every direct call to this participant's APIs needs on top of the request's own
+         * ones -- the API key, when one is configured (UAT), nothing otherwise.
+         */
+        public Map<String, String> authenticationHeaders() {
+            return apiKey == null ? Map.of() : Map.of(API_KEY_HEADER, apiKey);
+        }
+
+        /**
+         * Same offer as upstream's private getOfferForAsset(): the first policy of the provider's
+         * dataset for this asset, with assigner and target filled in -- exposed so that the
+         * catalog step can be timed on its own, separately from the negotiation.
+         */
+        public JsonObject getOfferForAsset(Participant provider, String assetId) {
+            var dataset = getDatasetForAsset(provider, assetId);
+            var policy = dataset.getJsonArray(ODRL_POLICY_ATTRIBUTE).get(0).asJsonObject();
+            return createObjectBuilder(policy)
+                    .add(ODRL_ASSIGNER_ATTRIBUTE, createObjectBuilder().add(ID, provider.getId()))
+                    .add(ODRL_TARGET_ATTRIBUTE, createObjectBuilder().add(ID, dataset.get(ID)))
+                    .build();
+        }
+
+        public String getContractAgreementId(String negotiationId) {
+            return getContractNegotiationField(negotiationId, "contractAgreementId");
+        }
+
+        /**
+         * The EDR the consumer control plane stored for a started transfer: the provider public
+         * API endpoint and the token to call it with. Returns empty until the EDR exists.
+         */
+        public Optional<Edr> findEdr(String transferProcessId) {
+            var response = baseManagementRequest()
+                    .when()
+                    .get("/v3/edrs/{id}/dataaddress", transferProcessId)
+                    .then()
+                    .extract();
+            if (response.statusCode() != 200) {
+                return Optional.empty();
+            }
+            Map<String, Object> body = response.jsonPath().getMap("$");
+            var endpoint = edcProperty(body, "endpoint");
+            var authorization = edcProperty(body, "authorization");
+            return endpoint == null || authorization == null ? Optional.empty() : Optional.of(new Edr(endpoint, authorization));
+        }
+
+        private static String edcProperty(Map<String, Object> body, String name) {
+            var value = body.containsKey(name) ? body.get(name) : body.get(EDC_NAMESPACE + name);
+            return value == null ? null : value.toString();
+        }
+
+        public record Edr(String endpoint, String authorization) {
         }
 
         public static class Builder extends Participant.Builder<ParticipantClient, Builder> {
@@ -185,6 +250,18 @@ abstract class AbstractParticipant extends AbstractEntity {
 
             public Builder controlPlaneProtocol(String controlPlaneProtocol) {
                 participant.controlPlaneProtocol = new LazySupplier<>(() -> URI.create(controlPlaneProtocol));
+                return self();
+            }
+
+            /**
+             * Sends {@code x-api-key} on every management and data API request, for environments
+             * (UAT) whose connector APIs are protected by one. Blank means no key.
+             */
+            public Builder apiKey(String apiKey) {
+                if (apiKey != null && !apiKey.isBlank()) {
+                    participant.apiKey = apiKey;
+                    participant.enrichManagementRequest = request -> request.header(API_KEY_HEADER, apiKey);
+                }
                 return self();
             }
 

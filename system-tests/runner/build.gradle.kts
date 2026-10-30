@@ -10,12 +10,20 @@ tasks.test {
     // (e.g. #971) doesn't fail test:e2e while the underlying gap is still open.
     useJUnitPlatform {
         excludeTags("known-limitation")
+        // ConnectorPerformanceTest is an experiment, not a regression test: it is also tagged
+        // EndToEndTest (and CI runs with -DrunAllTests=true), so it is only kept when asked for
+        // explicitly with -DincludeTags=performance.
+        val includeTags = System.getProperty("includeTags", "").split(",").map { it.trim() }
+        if ("performance" !in includeTags) {
+            excludeTags("performance")
+        }
     }
-    // Pass all system properties that start with "cluster.", "kubectl.", "developer.", or "ssh."
-    // to the test JVM.
+    // Pass all system properties that start with "cluster.", "kubectl.", "developer.", "ssh."
+    // or "perf." to the test JVM.
     System.getProperties().forEach { key, value ->
         if (key.toString().startsWith("cluster.") || key.toString().startsWith("kubectl.") ||
-            key.toString().startsWith("developer.") || key.toString().startsWith("ssh.")) {
+            key.toString().startsWith("developer.") || key.toString().startsWith("ssh.") ||
+            key.toString().startsWith("perf.")) {
             systemProperty(key.toString(), value.toString())
         }
     }
