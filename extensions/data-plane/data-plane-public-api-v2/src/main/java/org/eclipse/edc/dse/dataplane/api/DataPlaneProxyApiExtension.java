@@ -2,6 +2,7 @@ package org.eclipse.edc.dse.dataplane.api;
 
 import org.eclipse.edc.connector.dataplane.spi.pipeline.PipelineService;
 import org.eclipse.edc.dse.dataplane.api.controller.DataPlanePublicApiV2Controller;
+import org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders;
 import org.eclipse.edc.edr.spi.store.EndpointDataReferenceStore;
 import org.eclipse.edc.runtime.metamodel.annotation.Configuration;
 import org.eclipse.edc.runtime.metamodel.annotation.Inject;
@@ -38,6 +39,8 @@ public class DataPlaneProxyApiExtension implements ServiceExtension {
     private EndpointDataReferenceStore edrStore;
     @Inject
     private PortMappingRegistry portMappingRegistry;
+    @Inject
+    private ForwardedHeaders forwardedHeaders;
 
     private ExecutorService executorService;
 
@@ -53,7 +56,7 @@ public class DataPlaneProxyApiExtension implements ServiceExtension {
 
         executorService = newFixedThreadPool(context.getSetting(THREAD_POOL_SIZE, DEFAULT_THREAD_POOL));
 
-        var controller = new DataPlanePublicApiV2Controller(pipelineService, executorService, new ConsumerDataPlaneAuthorizationService(edrStore));
+        var controller = new DataPlanePublicApiV2Controller(pipelineService, executorService, new ConsumerDataPlaneAuthorizationService(edrStore), forwardedHeaders, false);
         webService.registerResource(API_CONTEXT, controller);
         webService.registerResource(API_CONTEXT, new EdcApiExceptionMapper());
 

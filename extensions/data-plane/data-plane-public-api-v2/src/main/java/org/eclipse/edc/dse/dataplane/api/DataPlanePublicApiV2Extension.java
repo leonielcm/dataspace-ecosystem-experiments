@@ -19,6 +19,7 @@ import org.eclipse.edc.connector.dataplane.spi.iam.DataPlaneAuthorizationService
 import org.eclipse.edc.connector.dataplane.spi.iam.PublicEndpointGeneratorService;
 import org.eclipse.edc.connector.dataplane.spi.pipeline.PipelineService;
 import org.eclipse.edc.dse.dataplane.api.controller.DataPlanePublicApiV2Controller;
+import org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders;
 import org.eclipse.edc.runtime.metamodel.annotation.Configuration;
 import org.eclipse.edc.runtime.metamodel.annotation.Extension;
 import org.eclipse.edc.runtime.metamodel.annotation.Inject;
@@ -75,6 +76,8 @@ public class DataPlanePublicApiV2Extension implements ServiceExtension {
     private PublicEndpointGeneratorService generatorService;
     @Inject
     private Hostname hostname;
+    @Inject
+    private ForwardedHeaders forwardedHeaders;
 
     @Override
     public String name() {
@@ -104,7 +107,7 @@ public class DataPlanePublicApiV2Extension implements ServiceExtension {
             generatorService.addGeneratorFunction("HttpData", dataAddress -> Endpoint.url(publicApiResponseUrl));
         }
 
-        var publicApiController = new DataPlanePublicApiV2Controller(pipelineService, executorService, authorizationService);
+        var publicApiController = new DataPlanePublicApiV2Controller(pipelineService, executorService, authorizationService, forwardedHeaders, true);
         webService.registerResource(PUBLIC, publicApiController);
     }
 

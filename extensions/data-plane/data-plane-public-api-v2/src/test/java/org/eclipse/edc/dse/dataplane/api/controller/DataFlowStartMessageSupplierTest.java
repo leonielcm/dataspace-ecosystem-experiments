@@ -18,19 +18,22 @@ import jakarta.ws.rs.HttpMethod;
 import jakarta.ws.rs.core.MediaType;
 import org.eclipse.edc.connector.dataplane.spi.schema.DataFlowRequestSchema;
 import org.eclipse.edc.connector.dataplane.util.sink.AsyncStreamingDataSink;
+import org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders;
+import org.eclipse.edc.dse.dataplane.api.headers.ProxyHttpDataSourceFactory;
 import org.eclipse.edc.spi.types.domain.DataAddress;
 import org.junit.jupiter.api.Test;
 
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.eclipse.edc.spi.constants.CoreConstants.EDC_NAMESPACE;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class DataFlowStartMessageSupplierTest {
 
 
-    private final DataFlowRequestSupplier supplier = new DataFlowRequestSupplier();
+    private final DataFlowRequestSupplier supplier = new DataFlowRequestSupplier(ForwardedHeaders.of(ForwardedHeaders.DEFAULT_ALLOWED));
 
     private static DataAddress createDataAddress() {
         return DataAddress.Builder.newInstance().type("test-type").build();
@@ -90,5 +93,52 @@ class DataFlowStartMessageSupplierTest {
                 DataFlowRequestSchema.BODY, body,
                 DataFlowRequestSchema.MEDIA_TYPE, MediaType.TEXT_PLAIN
         ));
+    }
+
+    @Test
+    void verifyMapping_forwardsAllowedHeadersOnly() {
+        var contextApi = mock(ContainerRequestContextApi.class);
+
+        when(contextApi.method()).thenReturn(HttpMethod.POST);
+        when(contextApi.path()).thenReturn("mcp");
+        when(contextApi.headers()).thenReturn(Map.of(
+                "mcp-session-id", "session-1",
+                "MCP-Protocol-Version", "2025-06-18",
+                "Authorization", "agreement-id",
+                "X-Custom", "ignored"));
+
+        var request = supplier.apply(contextApi, createDataAddress());
+
+        assertThat(request.getProperties())
+                .containsEntry("forwarded-header:Mcp-Session-Id", "session-1")
+                .containsEntry("forwarded-header:MCP-Protocol-Version", "2025-06-18")
+                .doesNotContainKeys("forwarded-header:Authorization", "forwarded-header:X-Custom");
+    }
+
+    @Test
+    void verifyMapping_usesProxySource_whenAddressRelaysHeaders() {
+        var contextApi = mock(ContainerRequestContextApi.class);
+        when(contextApi.method()).thenReturn(HttpMethod.POST);
+        when(contextApi.path()).thenReturn("mcp");
+        var address = DataAddress.Builder.newInstance()
+                .type("HttpData")
+                .property("baseUrl", "http://mcp.example.com")
+                .property(EDC_NAMESPACE + "proxyHeaders", "true")
+                .build();
+
+        var request = supplier.apply(contextApi, address);
+
+        assertThat(request.getSourceDataAddress().getType()).isEqualTo(ProxyHttpDataSourceFactory.TYPE);
+        assertThat(request.getSourceDataAddress().getStringProperty("baseUrl")).isEqualTo("http://mcp.example.com");
+    }
+
+    @Test
+    void verifyMapping_keepsSourceType_whenAddressDoesNotRelayHeaders() {
+        var contextApi = mock(ContainerRequestContextApi.class);
+        when(contextApi.method()).thenReturn(HttpMethod.GET);
+
+        var request = supplier.apply(contextApi, DataAddress.Builder.newInstance().type("HttpData").build());
+
+        assertThat(request.getSourceDataAddress().getType()).isEqualTo("HttpData");
     }
 }

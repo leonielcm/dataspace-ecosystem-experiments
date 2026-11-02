@@ -53,6 +53,8 @@ class ConsumerDataPlaneAuthorizationServiceTest {
             assertThat(httpDataAddress.getBaseUrl()).isEqualTo("http://example.com");
             assertThat(httpDataAddress.getAuthKey()).isEqualTo(EDR_AUTH_KEY);
             assertThat(httpDataAddress.getAuthCode()).isEqualTo("token");
+            assertThat(httpDataAddress.getStringProperty("proxyHeaders")).isEqualTo("true");
+            assertThat(httpDataAddress.getStringProperty("proxyHeadersConsumerHop")).isEqualTo("true");
         }));
 
 

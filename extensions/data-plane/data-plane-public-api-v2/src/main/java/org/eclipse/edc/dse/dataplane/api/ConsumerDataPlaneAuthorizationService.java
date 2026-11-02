@@ -14,6 +14,8 @@ import org.eclipse.edc.spi.types.domain.DataAddress;
 import java.util.Comparator;
 import java.util.Map;
 
+import static org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders.CONSUMER_HOP;
+import static org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders.PROXY_HEADERS;
 import static org.eclipse.edc.spi.constants.CoreConstants.EDC_NAMESPACE;
 import static org.eclipse.edc.spi.result.Result.failure;
 
@@ -63,6 +65,10 @@ public class ConsumerDataPlaneAuthorizationService implements DataPlaneAuthoriza
                 .proxyQueryParams(Boolean.TRUE.toString())
                 .proxyBody(Boolean.TRUE.toString())
                 .proxyMethod(Boolean.TRUE.toString())
+                // relay the allowed headers to the provider public API, which applies its own asset's proxyHeaders setting,
+                // and the provider's answer back, errors only when the provider marked them as relayed from its source
+                .property(EDC_NAMESPACE + PROXY_HEADERS, Boolean.TRUE.toString())
+                .property(EDC_NAMESPACE + CONSUMER_HOP, Boolean.TRUE.toString())
                 .build();
     }
 }

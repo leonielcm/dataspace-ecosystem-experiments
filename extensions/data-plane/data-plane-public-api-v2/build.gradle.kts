@@ -30,6 +30,7 @@ dependencies {
     implementation(libs.edc.core.jersey)
     implementation(libs.edc.lib.util)
     implementation(libs.edc.ext.dpf.util)
+    implementation(libs.edc.ext.dpf.http)
     implementation(libs.jakarta.rsApi)
 
     testImplementation(libs.edc.core.junit)

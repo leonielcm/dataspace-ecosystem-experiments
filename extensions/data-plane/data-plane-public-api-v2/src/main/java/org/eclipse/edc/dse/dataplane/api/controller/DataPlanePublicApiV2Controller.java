@@ -33,7 +33,7 @@ import jakarta.ws.rs.core.StreamingOutput;
 import org.eclipse.edc.connector.dataplane.spi.iam.DataPlaneAuthorizationService;
 import org.eclipse.edc.connector.dataplane.spi.pipeline.PipelineService;
 import org.eclipse.edc.connector.dataplane.spi.response.TransferErrorResponse;
-import org.eclipse.edc.connector.dataplane.util.sink.AsyncStreamingDataSink;
+import org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders;
 import org.eclipse.edc.spi.types.domain.transfer.DataFlowStartMessage;
 
 import java.util.HashMap;
@@ -56,14 +56,25 @@ public class DataPlanePublicApiV2Controller implements DataPlanePublicApiV2 {
     private final DataFlowRequestSupplier requestSupplier;
     private final ExecutorService executorService;
     private final DataPlaneAuthorizationService authorizationService;
+    private final boolean markRelayedResponses;
 
+    /**
+     * Creates the proxy controller of the provider public API or of the consumer data API.
+     *
+     * @param markRelayedResponses whether to mark the responses relayed from the data source with
+     *                             {@link ForwardedHeaders#RELAYED_RESPONSE_HEADER}: true on the provider public API,
+     *                             so that the consumer hop relays them in turn, false on the consumer data API.
+     */
     public DataPlanePublicApiV2Controller(PipelineService pipelineService,
                                           ExecutorService executorService,
-                                          DataPlaneAuthorizationService authorizationService) {
+                                          DataPlaneAuthorizationService authorizationService,
+                                          ForwardedHeaders forwardedHeaders,
+                                          boolean markRelayedResponses) {
         this.pipelineService = pipelineService;
         this.authorizationService = authorizationService;
-        this.requestSupplier = new DataFlowRequestSupplier();
+        this.requestSupplier = new DataFlowRequestSupplier(forwardedHeaders);
         this.executorService = executorService;
+        this.markRelayedResponses = markRelayedResponses;
     }
 
     private static Response error(Response.Status status, List<String> errors) {
@@ -161,13 +172,17 @@ public class DataPlanePublicApiV2Controller implements DataPlanePublicApiV2 {
 
     private void processRequest(DataFlowStartMessage dataFlowStartMessage, AsyncResponse response) {
 
-        AsyncStreamingDataSink.AsyncResponseContext asyncResponseContext = callback -> {
-            StreamingOutput output = t -> callback.outputStreamConsumer().accept(t);
-            var resp = Response.ok(output).type(callback.mediaType()).build();
-            return response.resume(resp);
+        RelayingStreamingDataSink.ResponseContext responseContext = relayedResponse -> {
+            StreamingOutput output = t -> relayedResponse.writer().accept(t);
+            var builder = Response.status(relayedResponse.statusCode()).entity(output).type(relayedResponse.mediaType());
+            relayedResponse.headers().forEach(builder::header);
+            if (relayedResponse.relayed() && markRelayedResponses) {
+                builder.header(ForwardedHeaders.RELAYED_RESPONSE_HEADER, Boolean.TRUE.toString());
+            }
+            return response.resume(builder.build());
         };
 
-        var sink = new AsyncStreamingDataSink(asyncResponseContext, executorService);
+        var sink = new RelayingStreamingDataSink(responseContext, executorService);
 
         pipelineService.transfer(dataFlowStartMessage, sink)
                 .whenComplete((result, throwable) -> {

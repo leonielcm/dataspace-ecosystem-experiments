@@ -18,12 +18,15 @@ package org.eclipse.edc.dse.dataplane.api.controller;
 import io.restassured.specification.RequestSpecification;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.edc.connector.dataplane.spi.iam.DataPlaneAuthorizationService;
+import org.eclipse.edc.connector.dataplane.spi.pipeline.DataSink;
 import org.eclipse.edc.connector.dataplane.spi.pipeline.DataSource;
 import org.eclipse.edc.connector.dataplane.spi.pipeline.PipelineService;
 import org.eclipse.edc.connector.dataplane.spi.pipeline.StreamFailure;
 import org.eclipse.edc.connector.dataplane.spi.pipeline.StreamResult;
 import org.eclipse.edc.connector.dataplane.spi.resolver.DataAddressResolver;
 import org.eclipse.edc.connector.dataplane.util.sink.AsyncStreamingDataSink;
+import org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders;
+import org.eclipse.edc.dse.dataplane.api.headers.ProxyHttpPart;
 import org.eclipse.edc.junit.annotations.ApiTest;
 import org.eclipse.edc.spi.result.Result;
 import org.eclipse.edc.spi.types.domain.DataAddress;
@@ -36,6 +39,7 @@ import org.mockito.ArgumentCaptor;
 import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
@@ -47,9 +51,11 @@ import static jakarta.ws.rs.core.HttpHeaders.AUTHORIZATION;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.CompletableFuture.failedFuture;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeaders.RELAYED_RESPONSE_HEADER;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.isA;
 import static org.hamcrest.CoreMatchers.not;
+import static org.hamcrest.CoreMatchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -166,12 +172,13 @@ class DataPlanePublicApiV2ControllerTest extends RestControllerTestBase {
     void shouldStreamSourceToResponse() {
         when(dataAddressResolver.resolve(any())).thenReturn(Result.success(testDestAddress()));
         when(pipelineService.transfer(any(), any())).thenAnswer(i -> {
-            ((AsyncStreamingDataSink) i.getArgument(1)).transfer(new TestDataSource("application/something", "data"));
+            ((DataSink) i.getArgument(1)).transfer(new TestDataSource("application/something", "data"));
             return CompletableFuture.completedFuture(StreamResult.success());
         });
 
         var responseBody = baseRequest()
                 .header(AUTHORIZATION, UUID.randomUUID().toString())
+                .header("Mcp-Session-Id", "session-1")
                 .when()
                 .post("/any?foo=bar")
                 .then()
@@ -186,12 +193,54 @@ class DataPlanePublicApiV2ControllerTest extends RestControllerTestBase {
         var request = requestCaptor.getValue();
         assertThat(request.getDestinationDataAddress().getType()).isEqualTo(AsyncStreamingDataSink.TYPE);
         assertThat(request.getSourceDataAddress().getType()).isEqualTo("test");
-        assertThat(request.getProperties()).containsEntry("method", "POST").containsEntry("pathSegments", "any").containsEntry("queryParams", "foo=bar");
+        assertThat(request.getProperties()).containsEntry("method", "POST").containsEntry("pathSegments", "any").containsEntry("queryParams", "foo=bar")
+                .containsEntry("forwarded-header:Mcp-Session-Id", "session-1")
+                .doesNotContainKey("forwarded-header:Authorization");
+    }
+
+    @Test
+    void shouldRelayStatusAndHeaders_whenSourceRelaysTheResponse() {
+        when(pipelineService.transfer(any(), any())).thenAnswer(i -> {
+            var part = new ProxyHttpPart("test", new ByteArrayInputStream("{\"error\":\"no stream\"}".getBytes()),
+                    "application/json", 405, Map.of("Mcp-Session-Id", "session-1"));
+            ((DataSink) i.getArgument(1)).transfer(new RelayingTestDataSource(part));
+            return CompletableFuture.completedFuture(StreamResult.success());
+        });
+
+        var responseBody = baseRequest()
+                .header(AUTHORIZATION, UUID.randomUUID().toString())
+                .when()
+                .get("/any")
+                .then()
+                .statusCode(405)
+                .contentType("application/json")
+                .header("Mcp-Session-Id", "session-1")
+                .header(RELAYED_RESPONSE_HEADER, "true")
+                .extract().body().asString();
+
+        assertThat(responseBody).isEqualTo("{\"error\":\"no stream\"}");
+    }
+
+    @Test
+    void shouldNotMarkResponse_whenSourceDoesNotRelayIt() {
+        when(pipelineService.transfer(any(), any())).thenAnswer(i -> {
+            ((DataSink) i.getArgument(1)).transfer(new TestDataSource("application/something", "data"));
+            return CompletableFuture.completedFuture(StreamResult.success());
+        });
+
+        baseRequest()
+                .header(AUTHORIZATION, UUID.randomUUID().toString())
+                .when()
+                .get("/any")
+                .then()
+                .statusCode(200)
+                .header(RELAYED_RESPONSE_HEADER, nullValue());
     }
 
     @Override
     protected Object controller() {
-        return new DataPlanePublicApiV2Controller(pipelineService, Executors.newSingleThreadExecutor(), authorizationService);
+        return new DataPlanePublicApiV2Controller(pipelineService, Executors.newSingleThreadExecutor(), authorizationService,
+                ForwardedHeaders.of(ForwardedHeaders.DEFAULT_ALLOWED), true);
     }
 
     private RequestSpecification baseRequest() {
@@ -202,6 +251,18 @@ class DataPlanePublicApiV2ControllerTest extends RestControllerTestBase {
 
     private DataAddress testDestAddress() {
         return DataAddress.Builder.newInstance().type("test").build();
+    }
+
+    private record RelayingTestDataSource(ProxyHttpPart part) implements DataSource {
+
+        @Override
+        public StreamResult<Stream<Part>> openPartStream() {
+            return StreamResult.success(Stream.of(part));
+        }
+
+        @Override
+        public void close() {
+        }
     }
 
     private record TestDataSource(String mediaType, String data) implements DataSource, DataSource.Part {
