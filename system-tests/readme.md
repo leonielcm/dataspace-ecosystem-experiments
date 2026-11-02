@@ -59,6 +59,73 @@ If the DB ever ends up in a state this doesn't cover (e.g. a schema-level issue,
 - **`TransferTest` negotiation occasionally stalls in `REQUESTED`/`REQUESTING`/`VERIFIED` instead of reaching `FINALIZED` within the timeout.** Two confirmed upstream EDC bugs (not `dse` code, no fix in this suite's scope): a DCP token-validation timeout (STS/VP resolution) on an inbound DSP message, and a lease race condition on `ContractNegotiation` rows (`SqlContractNegotiationStore`). Intermittent, moves between different tests on each run rather than always hitting the same one; just retry. See ticket #684 for details on the root-cause analysis.
 - **`ReportTest` needs `participant_id` seeded** (prerequisites above) — without it, `POST /telemetry-events` fails with a `400` (foreign key violation), not a clear "you forgot a setup step" error.
 
+## MCP over a local dataspace (no VM needed)
+
+`system-tests/mcp-e2e` checks that an MCP (Model Context Protocol) server published as an asset can be called through the dataspace. Unlike the rest of this suite, it needs no VM: the whole dataspace starts in the test JVM.
+
+How to publish an MCP server as an asset (`proxyHeaders=true`) and how the data plane relays MCP headers and statuses: see [`extensions/data-plane/data-plane-public-api-v2/README.md`](../extensions/data-plane/data-plane-public-api-v2/README.md).
+
+### What runs
+
+1. The provider publishes the MCP servers as `HttpData` assets through its management API, with a policy and a contract definition.
+2. The consumer reads the catalog, negotiates a contract and starts an `HttpData-PULL` transfer over DSP.
+3. The provider data plane issues the EDR, and the consumer stores it.
+4. The official MCP Java SDK client calls the consumer data API with the agreement id as `Authorization`. The call goes through the consumer data plane, then the provider data plane (real token check), then the MCP server.
+
+| Test | Checks |
+|---|---|
+| `mcpClient_shouldBeRejected_withoutAgreement` | without an agreement, the consumer data API answers `403` and nothing reaches the MCP server |
+| `mcpClient_shouldReadResourceAndCallTool_afterNegotiation` | `initialize`, `resources/read` and `tools/call` on a stateless server; neither the agreement id nor the EDR token reach it |
+| `mcpClient_shouldKeepTheSession_ofStatefulServer_afterNegotiation` | the `Mcp-Session-Id` returned on `initialize` comes back on every later request |
+| `mcpClient_shouldReachRealServer_afterNegotiation` | opt-in, see below: same path to a real MCP server, compared with a direct connection to it |
+
+### What is real, what is simulated
+
+**Real:**
+
+- two EDC connectors, provider and consumer, talking DSP;
+- the project's data plane launcher (`launchers/data-plane/data-plane-base`), with its extensions and its data consumption metrics, on Postgres;
+- the EDR token, signed and checked by the provider data plane;
+- the official MCP Java SDK, client and servers.
+
+**Simulated:**
+
+- **Identity.** EDC's `iam-mock` replaces DCP (verifiable credentials, identity hub, issuer). The policy has no constraint, so access rules (membership, domain…) are not tested.
+- **Control plane.** It is a plain EDC control plane (`controlplane-base-bom`), not the project's launcher, which requires DCP. Its stores and the vaults are in memory.
+- **Consumer runtime.** The consumer control plane and data plane run in one runtime, so that the data plane sees the EDRs the control plane stores. Deployed, they are two runtimes sharing a database and a vault.
+- **Infrastructure.** No Kubernetes, no ingress: everything runs on `localhost`.
+
+### Run it
+
+Requires Docker: Testcontainers starts the Postgres the data planes need.
+
+```bash
+./gradlew :system-tests:mcp-e2e:runner:test
+```
+
+The runtimes take about 30 seconds to start. The test is named `*IntegrationTest`, so it also runs in the CI integration job, which then needs Docker.
+
+### Against a real MCP server
+
+The last test runs only when `mcp.real.url` is set, so that no regular run calls a third-party service. The tool named by `mcp.real.tool` is called with the JSON object in `mcp.real.args`. Pick a read-only tool.
+
+```bash
+./gradlew :system-tests:mcp-e2e:runner:cleanTest :system-tests:mcp-e2e:runner:test --tests "*shouldReachRealServer*" \
+  -Dmcp.real.url=https://mcp.parisjetaime.com/mcp \
+  -Dmcp.real.tool=paris_get_events \
+  -Dmcp.real.args='{"params":{"keyword":"jazz","limit":3}}'
+```
+
+The start of the tool's answer is printed in the test's standard output. To read it, open `system-tests/mcp-e2e/runner/build/reports/tests/test/index.html`, then the **Standard output** tab of `McpOverDataspaceIntegrationTest`.
+
+Before blaming the dataspace for an unexpected answer, call the server directly. Whatever it answers directly, it answers the same through the dataspace:
+
+```bash
+curl -s -X POST https://mcp.parisjetaime.com/mcp -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"paris_get_top_events","arguments":{}}}'
+```
+
 ## Kafka tests: setting up a kubectl context for your VM
 
 `transfer_kafka_stream()`'s pod discovery (`kubectl exec` into a `kafkacat-*` pod) shells out to `kubectl` **locally, on the machine running Gradle** — unlike the rest of the suite, it does not go through SSH. Without a kubectl context pointing at your VM, `kubectl --context <KUBECTL_CONTEXT>` silently falls back to whatever local context you have configured (a stale local cluster, if any) instead of failing — producing a misleading result rather than a clear one.

@@ -1,2 +1,3 @@
 org.eclipse.edc.dse.dataplane.api.DataPlaneProxyApiExtension
 org.eclipse.edc.dse.dataplane.api.DataPlanePublicApiV2Extension
+org.eclipse.edc.dse.dataplane.api.headers.ForwardedHeadersExtension

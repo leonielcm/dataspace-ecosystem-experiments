@@ -46,6 +46,7 @@ pages = [
 [[section.group]]
 title = "Data plane"
 pages = [
+  "extensions/data-plane/data-plane-public-api-v2",
   "extensions/data-plane/data-plane-http-header-secrets",
   "extensions/data-plane/data-plane-migration",
   "extensions/data-plane/sftp-source",
