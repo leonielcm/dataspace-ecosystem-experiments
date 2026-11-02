@@ -28,6 +28,9 @@ netty = "4.2.4.Final"
 mockito = "5.22.0"
 mina-sshd = "2.15.0"
 slf4j = "2.0.17"
+mcp = "2.1.0"
+# aligned with the Jetty version brought by org.eclipse.edc:jetty-core
+jetty = "12.1.4"
 
 [libraries]
 edc-spi-core = { module = "org.eclipse.edc:core-spi", version.ref = "edc" }
@@ -72,6 +75,7 @@ edc-core-api = { module = "org.eclipse.edc:api-core", version.ref = "edc" }
 edc-core-junit = { module = "org.eclipse.edc:junit", version.ref = "edc" }
 edc-core-token = { module = "org.eclipse.edc:token-core", version.ref = "edc" }
 edc-core-jersey = { module = "org.eclipse.edc:jersey-core", version.ref = "edc" }
+edc-core-jetty = { module = "org.eclipse.edc:jetty-core", version.ref = "edc" }
 edc-core-sql = { module = "org.eclipse.edc:sql-core", version.ref = "edc" }
 
 edc-transaction-local = { module = "org.eclipse.edc:transaction-local", version.ref = "edc" }
@@ -193,6 +197,9 @@ jackson-dataformat-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-d
 nimbus-jwt = { module = "com.nimbusds:nimbus-jose-jwt", version.ref = "nimbus" }
 mockserver-client = { module = "org.mock-server:mockserver-client-java", version.ref = "httpMockServer" }
 mockserver-netty = { module = "org.mock-server:mockserver-netty", version.ref = "httpMockServer" }
+mcp-core = { module = "io.modelcontextprotocol.sdk:mcp-core", version.ref = "mcp" }
+mcp-json-jackson2 = { module = "io.modelcontextprotocol.sdk:mcp-json-jackson2", version.ref = "mcp" }
+jetty-ee10-servlet = { module = "org.eclipse.jetty.ee10:jetty-ee10-servlet", version.ref = "jetty" }
 junit-jupiter-api = { module = "org.junit.jupiter:junit-jupiter-api", version.ref = "jupiter" }
 junit-jupiter-engine = { module = "org.junit.jupiter:junit-jupiter-engine", version.ref = "jupiter" }
 junit-jupiter-params = { module = "org.junit.jupiter:junit-jupiter-params", version.ref = "jupiter" }

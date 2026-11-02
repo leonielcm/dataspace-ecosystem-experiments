@@ -39,6 +39,15 @@ dependencies {
     testImplementation(libs.mockserver.netty)
     testImplementation(libs.mockserver.client)
     testImplementation(testFixtures(libs.edc.core.jersey))
+
+    // MCP through the data plane: real MCP server and client around an embedded data plane runtime
+    testImplementation(libs.mcp.core)
+    testImplementation(libs.mcp.json.jackson2)
+    testImplementation(libs.jetty.ee10.servlet)
+    testRuntimeOnly(libs.edc.core.jetty)
+    testRuntimeOnly(libs.bundles.connector)
+    testRuntimeOnly(libs.edc.ext.dpf.core)
+    testRuntimeOnly(libs.edc.core.edr.store)
 }
 edcBuild {
     swagger {
