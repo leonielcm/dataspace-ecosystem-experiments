@@ -143,6 +143,8 @@ edc-controlplane-core = { module = "org.eclipse.edc:control-plane-core", version
 
 # Data Plane
 edc-dataplane-bom = { module = "org.eclipse.edc:dataplane-base-bom", version.ref = "edc" }
+edc-controlplane-base-bom = { module = "org.eclipse.edc:controlplane-base-bom", version.ref = "edc" }
+edc-iam-mock = { module = "org.eclipse.edc:iam-mock", version.ref = "edc" }
 edc-dataplane-sql-bom = { module = "org.eclipse.edc:dataplane-feature-sql-bom", version.ref = "edc" }
 
 # Identity Hub dependencies

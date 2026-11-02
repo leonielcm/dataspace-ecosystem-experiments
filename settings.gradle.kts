@@ -123,6 +123,9 @@ include(":launchers:telemetry-csv-manager:telemetry-csv-manager-postgresql-hashi
 
 include(":system-tests:backend-service-provider")
 include(":system-tests:runner")
+include(":system-tests:mcp-e2e:control-plane")
+include(":system-tests:mcp-e2e:data-plane")
+include(":system-tests:mcp-e2e:runner")
 
 pluginManagement {
     repositories {
